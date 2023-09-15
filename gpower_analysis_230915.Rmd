@@ -1,0 +1,485 @@
+---
+title: "gpower_analysis_221005"
+author: "Robert Thibault"
+date: "05/10/2022"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(include = FALSE) # this option stops the code chunks from being output from the knit
+```
+
+```{r packages}
+library(tidyverse) # for cleaner code
+library(knitr) # for kable function
+library(kableExtra) # for kable table styling
+library(irr) # for inter-rater agreement calculations
+library(english) # to convert numbers to word equivalents via the function: words() 
+library(statpsych) # for the precision analysis
+library(table1) # for making Table 1
+```
+
+```{r cleanData}
+# load the raw data
+filepath <- paste0(getwd(), "/gpower_codingResolving_221013.csv" )
+raw <- read.csv(filepath, header = TRUE)
+d <- raw
+
+d <-
+  d %>% 
+  # remove irrelevant columns that Qualtrics exports
+  select(-c(1:18)) %>% 
+  # remove irrelevant rows that Qualtrics exports
+  slice(-c(1:2)) %>%
+  # recode the $power_1_TEXT column to 0.80, where relevant. This is necessary as we updated the Qualtrics extraction form to add a button for "Yes (0.80)" to speed up coding
+  mutate(
+    power_1_TEXT = if_else(power == "Yes (0.80)", "0.80", power_1_TEXT),
+    power = if_else(power == "Yes (0.80)", "Yes", power),
+    # repeat for $alpha column
+    alpha_1_TEXT = if_else(alpha == "Yes (0.05)", "0.05", alpha_1_TEXT),
+    alpha = if_else(alpha == "Yes (0.05)", "Yes", alpha)
+  )
+
+# recode Yes/No columns to 1 (yes), 2 (no), and NA
+d <- 
+  d %>% 
+  mutate_at(c("version", "power", "alpha", "sampleSize", "effectSizeValue"),
+      ~ case_when(
+      . == "Yes" ~ 1L,
+      . == "No" ~ 0L,
+      is.na(.) ~ NA_integer_) 
+      ) %>% 
+  mutate(effectSizeTypeBinary = 
+      case_when(
+      effectSizeType == "No" ~ 0L,
+      effectSizeType == "" ~ NA_integer_,
+      TRUE ~ 1L
+      ),
+  statTestBinary = 
+      case_when(
+      statTest == "the statistical test is NOT reported" ~ 0L,
+      statTest == "" ~ NA_integer_,
+      TRUE ~ 1L
+      ),
+  # make new column that checks how many power calcs include all 6 elements
+  all6 = (
+    power + alpha + sampleSize + effectSizeTypeBinary + effectSizeValue + statTestBinary
+    ),
+  # recode some columns to binary that weren't previously only "Yes" and "No"
+  all6Binary = 
+      case_when(
+      all6 == 6 ~ 1L,
+      all6 < 6 ~ 0L,
+      is.na(all6) ~ NA_integer_
+      ),
+  reproducibileBinary = 
+      case_when(
+      grepl("Yes", reproducible) ~ 1L,
+      reproducible == "No" ~ 0L,
+      is.na(reproducible) ~ NA_integer_
+      ),
+  JustificationBinary = 
+      case_when(
+      grepl("No justification", justification) ~ 0L,
+      is.na(justification) ~ NA_integer_,
+      TRUE ~ 0L,
+      )
+  )
+
+# recode a few columns to numerics
+d$power_1_TEXT <- as.numeric(d$power_1_TEXT)
+d$alpha_1_TEXT <- as.numeric(d$alpha_1_TEXT)
+d$sampleSize_1_TEXT <- as.numeric(d$sampleSize_1_TEXT)
+d$effectSizeValue_1_TEXT <- as.numeric(d$effectSizeValue_1_TEXT)
+d$impactFactor <- as.numeric(d$impactFactor)
+
+# make a new dataframe that only includes the filtered data, using with the keyword/character "/"
+d1_all <- d %>% filter(grepl("/", coder))
+
+# filter for articles that use GPower to solve for sample size
+d1 <- d1_all %>% filter(grepl("Solves for sample size", powerCalcType))
+
+#assign integer to use to calculate percentages
+denom <- nrow(d1)
+
+```
+
+```{r functions}
+
+# create function to calculate the point estimates and confidence intervals based on Monte Carlo sampling
+ciCalc <- function(num, denom){ 
+     sim <- rbeta(10000, shape1=num, shape2=(denom-num)) # simulate the distibution
+     point <- (quantile(sim, probs=0.5)) # calculate the point estimate and 95% CI bounds
+     lb <- (quantile(sim, probs=0.025))
+     ub <- (quantile(sim, probs=0.975))
+     cis <- c(point, lb, ub)
+  return(cis)
+}
+
+#create function to create point estimates and confidence intervals as they'll appear in the table output
+ciClean <- function(ci){
+  ci <- ci %>% round(2)
+  ciOut <- paste0(ci[1], " (", ci[2], " - ", ci[3], ")")
+  return(ciOut)
+}
+
+```
+
+```{r tableArticles}
+# this chunk estimates the total number of published articles that use GPower for doing (1) a power calculation, or (2) an a priori sample size calculation
+
+denomAll <- nrow(d1_all) # number of articles coded
+include <- sum(d1_all$include == "Include")  # number of articles with any power calc
+ANOVA <- sum(grepl("Yes", d1$ANOVAwithinBetween)) # number of the 120 articles that used GPower for an ANOVA sample size calculation
+pmcTotal = 3285893 # total number of PMC articles published in the time of our query: ("2017/01/01" [Publication Date] : "3000" [Publication Date]) AND ("1000" [pmclivedate] : "2022/05/31" [pmclivedate]) 
+pmcHits = 22188  # number of search hits from our query (GPower OR “G Power”) AND ("2017/01/01" [Publication Date] : "3000" [Publication Date]) AND ("1000" [pmclivedate] : "2022/05/31" [pmclivedate]) 
+pubmedTotal = 7318980 # total number of PubMed articles published in that period: ("2017/01/01" [Publication Date] : "3000" [Publication Date]) AND ("1000" [Date - Entry] : "2022/05/31" [Date - Entry])
+proportion <- pmcHits/pmcTotal # proportion of PMC articles that were hits
+multFact <- pubmedTotal/pmcTotal # the factor to multiply our findings for PMC articles to get an estimate for all PubMed articles.
+multFact50 <- 1 + (multFact -1)/2 # a conservative multiplication factor if we assume that half as many papers in pubmed use power calculations as compared to PMC
+
+#initialize dataframe for point estimates and confidence intervals
+cis <- data.frame(matrix(nrow=6, ncol=1))
+
+
+# create function to calculate the point estimates and confidence intervals based on Monte Carlo sampling
+ciCalc <- function(total, proportion, num, denom){ 
+     sim <- rbeta(10000, shape1=num, shape2=(denom-num)) # simulate the distibution
+     point <- (quantile(sim, probs=0.5)) # calculate the point estimate and 95% CI bounds
+     lb <- (quantile(sim, probs=0.025))
+     ub <- (quantile(sim, probs=0.975))
+     cis <- c(point, lb, ub)
+     cis <- cis * total * proportion
+  return(cis)
+}
+
+
+# run the function to calculate point estimates and confidence intervals 
+cis <- as.data.frame(
+  cbind(ciCalc(pmcTotal, proportion, include, denomAll),
+             ciCalc(pmcTotal, proportion, denom, denomAll),
+             ciCalc(pmcTotal, proportion, ANOVA, denomAll)
+             )
+)
+colnames(cis) <- c("Any power calculation",
+                   "Sample size calculation",
+                   "ANOVA sample size calculation"
+)
+
+cisRound <- cis %>% round(-3)
+
+#create function to create point estimates and confidence intervals as they'll appear in the table output
+ciClean <- function(ci){
+  ci <- ci %>% round(-2)
+  ciOut <- paste0(ci[1], " (", ci[2], " - ", ci[3], ")")
+  return(ciOut)
+}
+
+cisOut <- 
+  cis %>% 
+  summarise_all(ciClean) %>% 
+  t()
+
+```
+
+```{r tableCalcTypes}
+
+calcType <- rbind(
+  sum(grepl("sample size", d1_all$powerCalcType)),
+  sum(grepl("power", d1_all$powerCalcType)),
+  sum(grepl("effect size", d1_all$powerCalcType)),
+  sum(grepl("Other", d1_all$powerCalcType)),
+  sum(grepl("Unsure", d1_all$powerCalcType))
+)
+  
+rownames(calcType) <- c("Sample  size",
+                        "Power",
+                        "Effect size",
+                        "Sample size, after completing the study",
+                        "Unsure"
+                        )
+
+
+```
+
+```{r tableCharacteristics} 
+# make Table 1 with article characteristics
+
+# recode the $participants column
+d1$participants <- factor(d1$participants, 
+       levels = c("Humans", "Non-human animals (this includes both in vivo and in vitro studies)"),
+       labels = c("Human", "Non-human animal")
+       )
+
+# give the columns labels so that Table 1 is cleaner
+label(d1$protocol) <- "Protocol"
+label(d1$pubYear) <- "Year of publication"
+label(d1$impactFactor) <- "Journal Impact Factor"
+label(d1$participants) <- "Unit of study"
+label(d1$multiple) <- "Multiple sample size calculations"
+
+# make table 1
+t1 <- table1(~ protocol +
+               pubYear +
+               impactFactor +
+               participants +
+               multiple,
+               data = d1
+)
+
+```
+
+```{r tableOutcomes}
+# recode columns to have fewer factors that will fit more cleanly into a table
+d1 <- d1 %>% 
+  mutate(alphaFactor = 
+      case_when(
+      alpha_1_TEXT == 0.05 ~ "0.05",
+      is.na(alpha_1_TEXT) ~ "Not reported",
+      TRUE ~ "Other"
+      ),
+  powerFactor = 
+      case_when(
+      power_1_TEXT == 0.8 ~ "0.80",
+      power_1_TEXT == 0.95 ~ "0.95",
+      is.na(power_1_TEXT) ~ "Not reported",
+      TRUE ~ "Other"
+      ),
+  effectSizeTypeFactor = 
+      case_when(
+      effectSizeType == "d" ~ "d",
+      effectSizeType == "f" ~ "f",
+      effectSizeType == "Other: Non-standardized (e.g., 5 points on a questionnaire scale)." ~ "Non-standardized",
+      effectSizeType == "No" ~ "Not reported",
+      TRUE ~ "Other"
+      ),
+  statTestFactor = 
+      case_when(
+      statTest == "ANOVA" ~ "ANOVA",
+      statTest == "t-test" ~ "t-test",
+      statTest == "the statistical test is NOT reported" ~ "Not reported",
+      TRUE ~ "Other"
+      ),
+  reproducibleFactor = 
+      case_when(
+      reproducible == "Yes, based solely on the information in the article or its supplementary material" ~ "Yes, without assumptions",
+      reproducible== "Yes, but I've had to make some assumptions. (please list the assumptions you made)" ~ "Likely, with assumptions",
+      reproducible == "No" ~ "No"
+      ),
+  multCompareFactor = 
+      case_when(
+      grepl("contains multiple analyses", multCompare) ~ "No, and multiple analyses are performed",
+      grepl("no reason to account for multiple comparisons", multCompare) ~ "No, but a single outcome is identified",
+      multCompare == "Unsure" ~ "Unsure"
+      ),
+  errorFactor = 
+      case_when(
+      grepl("Likely", error) ~ "Unsure",
+      grepl("Unsure", error) ~ "Unsure",
+      error == "No" ~ "No",
+      error == "Yes" ~ "Yes" 
+      ),
+  matchFactor = 
+      case_when(
+      grepl("Unsure", match) ~ "Unsure",
+      match == "No" ~ "No",
+      match == "Yes" ~ "Yes",
+      grepl("protocol", match) ~ "NA, protocol"
+      )
+  )
+
+# order the levels of the factors for clarity
+d1$alphaFactor <- factor(d1$alphaFactor, levels = c("0.05", "Other", "Not reported"))
+d1$powerFactor <- factor(d1$powerFactor, levels = c("0.80", "0.95", "Other", "Not reported"))
+d1$effectSizeTypeFactor <- factor(d1$effectSizeTypeFactor, levels = c("d", "f", "Non-standardized", "Other", "Not reported"))
+d1$statTestFactor <- factor(d1$statTestFactor, levels = c("ANOVA", "t-test", "Other", "Not reported"))
+d1$reproducibleFactor <- factor(d1$reproducibleFactor, levels = c("Yes, without assumptions", "Likely, with assumptions", "No"))
+d1$multCompareFactor <- factor(d1$multCompareFactor, levels = c("No, and multiple analyses are performed", "No, but a single outcome is identified", "Unsure"))
+d1$errorFactor <- factor(d1$errorFactor, levels = c("Yes", "No", "Unsure"))
+d1$matchFactor <- factor(d1$matchFactor, levels = c("Yes", "No", "Unsure", "NA, protocol"))
+
+# label the columns so that Table 2 is cleaner
+label(d1$alphaFactor) <- "Alpha"
+label(d1$powerFactor) <- "Power"
+label(d1$effectSizeTypeFactor) <- "Effect size type"
+label(d1$statTestFactor) <- "Statistical test"
+label(d1$sampleSize_1_TEXT) <- "Sample size"
+label(d1$reproducibleFactor) <- "Reproducible"
+label(d1$multCompareFactor) <- "Adjusted for multiple comparisons"
+label(d1$errorFactor) <- "Error"
+label(d1$matchFactor) <- "Analysis match"
+
+t2 <- table1(~ alphaFactor + 
+               powerFactor + 
+               effectSizeTypeFactor + 
+               statTestFactor +
+               sampleSize_1_TEXT +
+               reproducibleFactor +
+               multCompareFactor +
+               errorFactor + 
+               matchFactor,
+               data = d1
+)
+
+# Some power calculations had multiple justifications, so we need separate code for this column
+justification <- rbind(
+  sum(grepl("Previously published research", d1$justification)),
+  sum(grepl("pilot data", d1$justification)),
+  sum(grepl("Conventions", d1$justification)),
+  sum(grepl("MCID", d1$justification)),
+  sum(grepl("No justification", d1$justification)),
+  sum(grepl("Reference to other study to justify their calculation in general", d1$justification)),
+  sum(grepl("Other", d1$justification))
+)
+
+rownames(justification) <- c("Previous published research",
+                             "Pilot data",
+                             "Effect size conventions",
+                             "Effect size of interest",
+                             "No justification provided",
+                             "Reference to another study, but not specifically to effect size",
+                             "Other"
+                             )
+
+
+```
+
+```{r effectSizes}
+# summarize the values for the 15 power calcs that were done with Cohen's d and the 15 with Cohen's f
+dCohend <- d1 %>% 
+  filter(effectSizeType == "d")
+cohend <- summary(dCohend$effectSizeValue_1_TEXT)
+
+dCohenf <- d1 %>% 
+  filter(effectSizeType == "f")
+cohenf <- summary(dCohenf$effectSizeValue_1_TEXT)
+
+```
+
+```{r}
+tab <- 
+  d1 %>% 
+  summarize_at(c("version", 
+                 "power", 
+                 "alpha", 
+                 "sampleSize", 
+                 "effectSizeTypeBinary", 
+                 "effectSizeValue", 
+                 "statTestBinary", 
+                 "all6Binary"), 
+  ~ ciCalc(sum(.), denom))
+
+```
+
+```{r}
+t1
+             
+
+ciPower <- ciCalc(sum(d1$power), denom)
+ciAlpha <- ciCalc(sum(d1$alpha), denom)
+ciSampleSize <- ciCalc(sum(d1$sampleSize), denom)
+ciEffectSizeType <- ciCalc(sum(d1$effectSizeType != "No", na.rm = T), denom)
+ciEffectSizeValue <- ciCalc(sum(d1$effectSizeValue), denom)
+ciEffectSizeValue <- ciCalc(sum(d1$effectSizeValue), denom)
+
+
+# MArton suggestion for making a table
+# sum_table <- 
+#   d1 %>% 
+#   summarise(
+#     ciPower = ciCalc(sum(power), denom),
+# ciAlpha = ciCalc(sum(d1$alpha), denom),
+# ciSampleSize = ciCalc(sum(d1$sampleSize), denom),
+# ciEffectSizeType = ciCalc(sum(d1$effectSizeType != "No", na.rm = T), denom),
+# ciEffectSizeValue = ciCalc(sum(d1$effectSizeValue), denom),
+# ciEffectSizeValue = ciCalc(sum(d1$effectSizeValue), denom),
+#   )
+
+
+ciPowerOut <- ciClean(ciPower)
+
+
+
+```{r, Table1, include = TRUE, echo = FALSE, results = "asis"}
+knitr::kable(cisOut, caption = "Table 1. Estimates of the number of published articles that use GPower", booktabs = T, linesep = "", align = "c") %>% 
+  kable_styling(latex_options = "striped") %>%
+  kable_styling(latex_options = c("hold_position")) %>%
+  kable_styling(font_size = 8) %>% 
+    add_footnote(paste0("The table is divided into articles that use G*Power for: any power calculation related to any statistical test (Any power calculation), a power calculation for any statistical test that solves for sample size (Sample size calculation), and a power calculation for an ANOVA that solves for sample size (ANOVA sample size calculation). The total number of articles in each database since 2017 is: PubMed Central ", prettyNum(pmcTotal, big.mark=",", scientific=F), "; PubMed ", prettyNum(pubmedTotal, big.mark=",", scientific=F), "."), notation = "none", threeparttable = T) 
+```
+
+
+
+
+
+
+## CODE to get preliminary results to the GPower team
+
+# filter for calculations solving for power
+d <- d %>% filter(grepl("Solves for sample size", powerCalcType))
+
+
+reproducible <- table(d$reproducible)
+power <- table(d$power)
+alpha <- table(d$alpha)
+effectSizeType <- table(d$alpha)
+sampleSize <- table(d$sampleSize)
+effectSizeValue <- table(d$effectSizeValue)
+statTest <- table(d$statTest)
+ANOVAwithinBetween <- table(d$ANOVAwithinBetween)
+multCompare <- table(d$multCompare)
+match <- table(d$match)
+error <- table(d$error)
+
+
+
+filepath <- paste0(getwd(), "/gpower_codingResolvingANOVAs_220929.csv" )
+rawANOVA <- read.csv(filepath, header = TRUE)
+
+dANOVA <- rawANOVA
+# filter to only include resolved coding using with the keyword/charcter "/"
+dANOVA <- dANOVA %>% filter(grepl("/", coder))
+dANOVA <- dANOVA[1:9,]
+ANOVAwithinBetweenANOVA <- table(dANOVA$ANOVAwithinBetween)
+```
+
+## prelim reproducibility results
+Reproducible with assumptions: `r sum(grepl("Yes, but", d$reproducible))`
+
+Reproducible without making assumptions: `r sum(grepl("Yes, based solely", d$reproducible))`
+
+Not reproducible: `r sum(grepl("No", d$reproducible))`
+
+Effect size value not reported: `r sum(grepl("No", d$effectSizeValue))`
+
+Effect size type not reported: `r sum(grepl("No", d$effectSizeType))`
+
+Statistical test not reported: `r sum(grepl("NOT reported", d$statTest))`
+
+
+```{r repro}
+
+drep <- d %>% filter(grepl("Yes", reproducible))
+
+reproducible_rep <- table(drep$reproducible)
+power_rep <- table(drep$power)
+alpha_rep <- table(drep$alpha)
+effectSizeType_rep <- table(drep$effectSizeType)
+sampleSize_rep <- table(drep$sampleSize)
+effectSizeValue_rep <- table(drep$effectSizeValue)
+statTest_rep <- table(drep$statTest)
+ANOVAwithinBetween_rep <- table(drep$ANOVAwithinBetween)
+multCompare_rep <- table(drep$multCompare)
+match_rep <- table(drep$match)
+error_rep <- table(drep$error)
+
+
+```
+
+
+
+
+
+
+
+
