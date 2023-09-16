@@ -19,54 +19,64 @@ library(statpsych) # for the precision analysis
 library(table1) # for making Table 1
 ```
 
-```{r cleanData}
+```{r clean_data}
 # load the raw data
-filepath <- paste0(getwd(), "/gpower_codingResolving_221013.csv" )
+filepath <- paste0(getwd(), "/gpower_dataset_230915.csv" )
 raw <- read.csv(filepath, header = TRUE)
-d <- raw
+df <- raw
 
-d <-
-  d %>% 
+df <-
+  df %>% 
   # remove irrelevant columns that Qualtrics exports
-  select(-c(1:18)) %>% 
-  # remove irrelevant rows that Qualtrics exports
-  slice(-c(1:2)) %>%
+  # select(-c(1:18)) %>% 
+  # remove empty rows for coders other than RT, EZ, and HP (which there were not)
+  select(-coder_text) %>% 
+  # filter out resolving notes column
+  filter(coder != "resolveNotes") %>% 
+  filter(id != "") %>%   # remove irrelevant rows that Qualtrics exports
+  filter(id != "156") %>%  # remove extra paper RTT coded
+  
+  ############# TEMPORARILY REMOVE THESE TWO, UNTIL HUGO CODES THEM
+    filter(id != "143") %>%  
+    filter(id != "146") %>%  
+  ################
+  
   # recode the $power_1_TEXT column to 0.80, where relevant. This is necessary as we updated the Qualtrics extraction form to add a button for "Yes (0.80)" to speed up coding
   mutate(
-    power_1_TEXT = if_else(power == "Yes (0.80)", "0.80", power_1_TEXT),
+    power_text = if_else(power == "Yes (0.80)", "0.80", power_text),
     power = if_else(power == "Yes (0.80)", "Yes", power),
     # repeat for $alpha column
-    alpha_1_TEXT = if_else(alpha == "Yes (0.05)", "0.05", alpha_1_TEXT),
+    alpha_text = if_else(alpha == "Yes (0.05)", "0.05", alpha_text),
     alpha = if_else(alpha == "Yes (0.05)", "Yes", alpha)
   )
 
 # recode Yes/No columns to 1 (yes), 2 (no), and NA
-d <- 
-  d %>% 
-  mutate_at(c("version", "power", "alpha", "sampleSize", "effectSizeValue"),
+df <- 
+  df %>% 
+  mutate_at(c("version", "power", "alpha", "sample_size", "effect_size_value"),
       ~ case_when(
       . == "Yes" ~ 1L,
       . == "No" ~ 0L,
       is.na(.) ~ NA_integer_) 
       ) %>% 
-  mutate(effectSizeTypeBinary = 
+  mutate(effect_size_type_binary = 
       case_when(
-      effectSizeType == "No" ~ 0L,
-      effectSizeType == "" ~ NA_integer_,
+      effect_size_type == "No" ~ 0L,
+      effect_size_type == "" ~ NA_integer_,
       TRUE ~ 1L
       ),
-  statTestBinary = 
+  stat_test_binary = 
       case_when(
-      statTest == "the statistical test is NOT reported" ~ 0L,
-      statTest == "" ~ NA_integer_,
+      stat_test == "the statistical test is NOT reported" ~ 0L,
+      stat_test == "" ~ NA_integer_,
       TRUE ~ 1L
       ),
   # make new column that checks how many power calcs include all 6 elements
   all6 = (
-    power + alpha + sampleSize + effectSizeTypeBinary + effectSizeValue + statTestBinary
+    power + alpha + sample_size + effect_size_type_binary + effect_size_value + stat_test_binary
     ),
   # recode some columns to binary that weren't previously only "Yes" and "No"
-  all6Binary = 
+  all6_binary = 
       case_when(
       all6 == 6 ~ 1L,
       all6 < 6 ~ 0L,
@@ -87,11 +97,152 @@ d <-
   )
 
 # recode a few columns to numerics
-d$power_1_TEXT <- as.numeric(d$power_1_TEXT)
-d$alpha_1_TEXT <- as.numeric(d$alpha_1_TEXT)
-d$sampleSize_1_TEXT <- as.numeric(d$sampleSize_1_TEXT)
-d$effectSizeValue_1_TEXT <- as.numeric(d$effectSizeValue_1_TEXT)
-d$impactFactor <- as.numeric(d$impactFactor)
+df$id <- as.numeric(df$id)
+df$power_text <- as.numeric(df$power_text)
+df$alpha_text <- as.numeric(df$alpha_text)
+df$sample_size_text <- as.numeric(df$sample_size_text)
+df$effect_size_value_text <- as.numeric(df$effect_size_value_text)
+df$impact_factor <- as.numeric(df$impact_factor)
+
+
+inter_rater <- function(df, variables, prescreen_questions){
+  
+  # Initialize an empty list to store results
+    kappa_results <- data.frame(matrix(nrow = length(variables), ncol = 5))
+    colnames(kappa_results) <- c("k", "percent_agreed", "n_disagreed", "n_total", "n_categories")
+    rownames(kappa_results) <- variables
+    
+      # Loop through each variable
+  for (var in variables) {
+    
+    if(prescreen_questions == TRUE){
+    # Subset data for each coder and specific variable
+    data1 <- subset(df, coder == "RTT")[, var]
+    data2 <- subset(df, coder == "EZ")[, var]
+    } else {
+    data1 <- subset(df, coder_number == 1)[, var]
+    data2 <- subset(df, coder_number == 2)[, var]
+    }
+      
+    # Combine into a matrix
+    combined_data <- matrix(c(data1, data2), ncol = 2)
+    
+    # Calculate Cohen's Kappa
+    result <- kappa2(combined_data)
+    
+    # Store the result in the list
+    kappa_results[[var, "k"]] <- result$value %>% round(2)
+    kappa_results[[var, "percent_agreed"]] <- (sum(data1 == data2, na.rm = TRUE) / result$subjects) %>% round(2)
+    kappa_results[[var, "n_disagreed"]] <- sum(data1 != data2, na.rm = TRUE)
+    kappa_results[[var, "n_total"]] <- result$subjects
+    kappa_results[[var, "n_categories"]] <- n_distinct(df[[var]])
+  }
+  return(kappa_results)
+}
+
+variables1 <- c(
+  "id",
+#  "coder",
+#  "coder_text",
+#  "coder_numer",
+  "pmcid",
+  "protocol",
+  "include"
+)
+
+kappa_include <- inter_rater(df, variables1, TRUE)
+
+# identify ids for included articles
+id_include <- df %>% filter(grepl("/", coder)) %>% 
+  filter(include == "Include") %>% 
+  select(id)
+
+# remove excluded articles based on their id. This is necessary to calculate inter-rater agreement for the other variables. 
+df <- df %>% filter(id %in% id_include$id)
+
+# now that I've removed the excluded articles, I can calculate inter-rater agreement for the variables coded for all included article. All these questions were answered before the survey allowed the coder to select the option "I don't have the expertise for this article".
+variables2 <- c(
+  "participants",
+#  "participants_text",
+  "journal", # small difference in typing may result in different coding
+#  "publisher", # recorded by one coder after all other coding was done (thus cannot calculate IRR)
+  "pub_year",
+  "impact_factor",
+#  "verbatim",
+  "power_calc_type",
+# "power_calc_type_text",
+  "multiple"
+#  "stats_knowledge",
+)
+
+# Recode NAs to -100 in the "impact_factor" column
+df$impact_factor <- ifelse(is.na(df$impact_factor), -100, df$impact_factor)
+
+kappa_any_power_calc <- inter_rater(df, variables2, TRUE)
+
+# return the impact factors to NA. I only needed them to be a number for the n_disagreement variable
+df$impact_factor <- ifelse(is.na(df$impact_factor), -100, df$impact_factor)
+
+# identify ids for articles not solving for sample size
+id_sample_size_calc <- df %>% filter(grepl("/", coder)) %>% 
+  filter(power_calc_type == "Solves for sample size (often called a priori)") %>% 
+  select(id)
+
+# remove articles that don't solve for sample size based on their id. This is necessary to calculate inter-rater agreement for the other variables. 
+df <- df %>% filter(id %in% id_sample_size_calc$id)
+
+# calculate inter-rater agreement for all relevant variables
+
+# List of variables to check
+variables3 <- c(
+  "version",
+  "version_text",
+  "power",
+  "power_text",
+  "alpha",
+  "alpha_text",
+  "sample_size",
+  "sample_size_text",
+  "effect_size_type",
+#  "effect_size_type_other_standardized_text",
+#  "effect_size_type_other_nonstandardized_text",
+  "effect_size_value",
+  "effect_size_value_text",
+  "stat_test",
+#  "stat_test_other_regression_text",
+#  "stat_test_other_nonregression_text",
+#  "other_info_missing",
+  "reproducible",
+#  "reproducible_text",
+  "justification",
+# "justification_text",
+  "mult_compare",
+#  "mult_compare_text",
+  "anova_within_between",
+  "match",
+#  "match_text",
+  "error"
+#  "error_text",
+#  "impact",
+#  "comments_calc",
+#  "comments_general",
+#  "posthoc_resolving_notes"
+)
+
+kappa_sample_size_calc <- inter_rater(df, variables3, FALSE)
+
+kappa_all <- rbind(kappa_include,
+                   kappa_any_power_calc,
+                   kappa_sample_size_calc
+)
+
+```
+
+#################### coded to here ################3
+
+
+
+
 
 # make a new dataframe that only includes the filtered data, using with the keyword/character "/"
 d1_all <- d %>% filter(grepl("/", coder))
