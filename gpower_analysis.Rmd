@@ -2,9 +2,10 @@
 title: "gpower_analysis_230915"
 author: "Robert Thibault"
 date: "05/10/2022"
-output: 
+output:
   html_document:
     df_print: paged
+
 ---
 
 ```{r setup, include=FALSE}
@@ -24,7 +25,7 @@ library(table1) # for making Table 1
 
 ```{r clean}
 # load the raw data
-filepath <- paste0(getwd(), "/data/data_main_raw.csv" )
+filepath <- paste0(getwd(), "/gpower_dataset_230915.csv" )
 raw <- read.csv(filepath, header = TRUE)
 df <- raw
 
@@ -145,8 +146,7 @@ df1 <- df1_all %>% filter(grepl("Solves for sample size", power_calc_type))
 df1 <- df1 %>% 
   select(-c(coder_number, participants_text, power_calc_type_text))
 
-filename <- paste0(getwd(), "/data/data_main_clean.csv")
-write_csv(df1, filename)
+write_csv(df1, "dataClean.csv")
 ```
 
 ```{r functions}
@@ -739,7 +739,7 @@ kappa_all <- kappa_all %>%
 
 ```{r anova}
 
-filename <- paste0(getwd(), "/data/data_anova_raw.csv")
+filename <- paste0(getwd(), "/gpower_data_anovas_230919.csv")
 raw_anova <- read.csv(filename, header = T)
 df_anova_new <- raw_anova %>% 
   select(-c(coder_text, participants_text)
@@ -897,7 +897,7 @@ rec_results <- cbind(
                  "US (n)",
                  "UK (n)"
                )
-  ) %>%getwd
+  ) %>%
   kable_styling(latex_options = "striped") %>%
   add_footnote("temp", notation = "none", threeparttable = T)
 ```
