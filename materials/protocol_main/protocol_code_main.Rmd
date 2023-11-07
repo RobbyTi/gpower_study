@@ -1,0 +1,240 @@
+---
+title: Study Protocol Code for -- An evaluation of reproducibility and errors in statistical
+  power calculations performed using GPower
+author: |
+  |
+  | Robert T. Thibault, Emmanuel Zavalis, Hugo Pedder
+  |
+  | Address correspondence to robert.thibault@stanford.edu
+date: "`r Sys.Date()`"
+output:
+  pdf_document: default
+  html_document:
+    df_print: paged
+header-includes: \usepackage[labelformat=empty]{caption}
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(include = FALSE) # this option stops the code chunks from being output from the knit
+```
+
+```{r packages}
+library(readr)
+library(tidyverse) # for cleaner code
+library(knitr) # for knitting and kable function
+library(kableExtra) # for kable table styling
+options(scipen = 100) # to override scientific notation of numbers
+```
+
+```{r sample}
+# import the text file with all the PMCIDs from our search query
+pmcids=read.csv('pmc_queryResults.txt',col.names='PMCID')
+# sample 500 of them, which should be plenty more than we need to reach the 95 articles to include
+set.seed(1313)
+pmcids <- pmcids %>% sample_n(500, replace = FALSE)
+# output this sample to a csv to draw from
+write.csv(pmcids, "pmcids_sample.csv")
+```
+
+```{r binsim}
+#### This block simulates the number of samples needed for a given proportion and margin of error ####
+
+# Values expressed as proportions (rather than %)
+# MOE = margin of error (MOE of 0.2 = a CI with a width of 20%; e.g., a 95%CI of 20-40%)
+# p = expected proportion
+binsim_n <- function(MOE, p) {
+
+  n <- 1
+  moe.i <- 1
+  
+  repeat{
+    
+    n <- n + 1
+    
+    shape1 <- p * n
+    shape2 <- (1-p) * n
+    
+    lims <- qbeta(c(0.025, 0.975), shape1=shape1, shape2=shape2)
+    moe.i <- lims[2] - lims[1]
+    
+    if (moe.i < MOE) {
+      break()
+    }
+  }
+  
+  out <- paste0("Sample size to generate an MOE of ", MOE, " with expected proportion of ", p, ":\n",
+                n)
+  
+  cat(out)
+  return(invisible(n))
+}
+
+# calculate sample size for all power calcs solving for sample size
+nAll <- binsim_n(MOE = 0.2, p = 0.5)
+
+# calculate sample size for ANOVA power calcs solving for sample size
+nANOVA <- binsim_n(MOE = 0.2, p = 0.8)
+```
+
+```{r precision}
+# This block performs sample size calculations using the more common method for precision analyses
+
+# for all power calcs solving for sample size
+z = 1.96 # z-score corresponding to the desired confidence interval (e.g., 1.96 for a 95% confidence interval)
+p = 0.50 # expected proportion, (0.5 is most conservative)
+moe = 0.10 # moe is +/-, so moe=0.1 is a total CI width of 20%
+nAllCommon <- (p*(1-p)) / (moe/z)^2
+
+# for ANOVA power calcs solving for sample size
+z = 1.96 # z-score corresponding to the desired confidence interval (e.g., 1.96 for a 95% confidence interval)
+p = 0.80 # expected proportion, (0.5 is most conservative)
+moe = 0.10
+nANOVACommon <- (p*(1-p)) / (moe/z)^2
+
+```
+
+```{r extrapolate}
+# this chunk estimates the total number of published articles that use GPower for doing (1) a power analysis, or (2) an a priori sample size calculation
+
+# This code uses ***SYNTHETIC DATA***. It is for the purpose of showing the calculations we will use in the study,
+
+
+denom <- 120 # number of articles coded
+include <- 110 # number of articles with any power calc
+apriori <- 95 # number of articles with power calc solving for sample size
+aprioriANOVA <- 30 # number of the 120 articles that used GPower for an ANOVA sample size calculation
+pmcTotal = 3246604 # total number of PMC articles published since 2017 (as of 16 May)
+pmcHits = 21767 # number of search hits from our query
+pubmedTotal = 7264911 # total number of PubMed articles published since 2017 (as of 16 May)
+proportion <- pmcHits/pmcTotal # proportion of PMC articles that were hits
+multFact <- pubmedTotal/pmcTotal # the factor to multiply our findings for PMC articles to get an estimate for all PubMed articles.
+multFact50 <- 1 + (multFact -1)/2 # a conservative multiplication factor if we assume that half as many papers in pubmed use power calculations as compared to PMC
+
+#initialize dataframe for point estimates and confidence intervals
+cis <- data.frame(matrix(nrow=6, ncol=2))
+
+
+# create function to calculate the point estimates and confidence intervals based on Monte Carlo sampling
+ciCalc <- function(total, proportion, num, denom){ 
+     sim <- rbeta(10000, shape1=num, shape2=(denom-num)) # simulate the distibution
+     point <- (quantile(sim, probs=0.5)) # calculate the point estimate and 95% CI bounds
+     lb <- (quantile(sim, probs=0.025))
+     ub <- (quantile(sim, probs=0.975))
+     cis <- c(point, lb, ub)
+     cis <- cis * total * proportion
+  return(cis)
+}
+
+
+# run the function to calculate point estimates and confidence intervals 
+cis1 <- rbind(ciCalc(pmcTotal, proportion, include, denom),
+            ciCalc(pubmedTotal, proportion, include, denom)
+)
+cis2 <- rbind(ciCalc(pmcTotal, proportion, apriori, denom),
+            ciCalc(pubmedTotal, proportion, apriori, denom)
+)
+cis3 <- rbind(ciCalc(pmcTotal, proportion, aprioriANOVA, denom),
+            ciCalc(pubmedTotal, proportion, aprioriANOVA, denom)
+)
+cis <- cbind(cis1, cis2, cis3)
+
+
+# assign row names and column names
+rownames(cis) <- c("pmc", 
+                   "pubmed"
+                    )
+
+colnames(cis) <- c("include.point", 
+                    "include.ci.lb",
+                    "include.ci.ub",
+                    "apriori.point", 
+                    "apriori.ci.lb",
+                    "apriori.ci.ub",
+                    "aprioriANOVA.point", 
+                    "aprioriANOVA.ci.lb",
+                    "aprioriANOVA.ci.ub" 
+                    )        
+
+#create function to create point estimates and confidence intervals as they'll appear in the table output
+ciTab <- function(total, proportion, num, denom){
+           sim <- rbeta(10000, shape1=num, shape2=(denom-num)) # simulate the distibution
+           point <- ((quantile(sim, probs=0.5)) * total * proportion) %>% round(-3) # calculate the point estimate and 95% CI bounds
+           lb <- ((quantile(sim, probs=0.025)) * total * proportion) %>% round(-3)
+           ub <- ((quantile(sim, probs=0.975)) * total * proportion) %>% round(-3)
+           ciOut <- paste0(point, " (", lb, " - ", ub, ")")
+  return(ciOut)
+}
+
+
+cisOut1 <- rbind(ciTab(pmcTotal, proportion, include, denom),
+            ciTab(pubmedTotal, proportion, include, denom)
+)
+cisOut2 <- rbind(ciTab(pmcTotal, proportion, apriori, denom),
+            ciTab(pubmedTotal, proportion, apriori, denom)
+)
+cisOut3 <- rbind(ciTab(pmcTotal, proportion, aprioriANOVA, denom),
+            ciTab(pubmedTotal, proportion, aprioriANOVA, denom)
+)
+cisOut <- cbind(cisOut1, cisOut2, cisOut3) %>%
+  as.data.frame()
+
+#supplementary table 1
+rownames(cisOut) <- c("PubMed Central",
+                      "PubMed"
+                    )
+
+colnames(cisOut) <- c("Any power calculation",
+                   "Sample size calculation",
+                   "ANOVA sample size calculation"
+)
+
+cisRound <- cis %>% round(-3)
+
+```
+
+```{r column3}
+# This block provides an example of how we will calculate values for the rightmost column of Table 2 and Table 3
+
+ # proportion of apriori power calcs that are irreproducible
+ irreproducibleProp <- rbeta(10000, shape1=80, shape2=15)
+ # proportion of query hits that Gpower calcs solving for sample size
+ aprioriProp <- rbeta(10000, shape1=apriori, shape2=(denom-apriori))
+ # sum of the two proportions above
+ irreproducibleAprioriProp <- irreproducibleProp * aprioriProp
+ 
+ # take the estimates and multiply by the number of PMC query hits and multiplication factor to extrapolate to PubMed
+ point <- (quantile(irreproducibleAprioriProp, probs=0.5) * pmcHits * multFact) %>% round(-3)
+ lb <- (quantile(irreproducibleAprioriProp, probs=0.025) * pmcHits * multFact) %>% round(-3)
+ ub <- (quantile(irreproducibleAprioriProp, probs=0.975) * pmcHits * multFact) %>% round(-3)
+ 
+ irreproducibleOut <- paste0(point, " (95% CI: ", lb, "-", ub, ")")
+
+```
+
+Monte Carlo sample size calculations:  
+Sample size for all articles: `r nAll`  
+Sample size for articles powering for an ANOVA: `r nANOVA`
+
+Sample size calculations using the more common method with normal approximation. For comparison purposes only:  
+Sample size require for all articles: `r nAllCommon %>% ceiling()`  
+Sample size require for articles powering for an ANOVA: `r nANOVACommon  %>% ceiling()`
+
+# Example of results based on ***SIMULATED DATA***
+
+We sampled `r denom` articles, of which `r include` included a power calculation for a study in that article and `r apriori` of these articles performed power calculations to solve for sample size. *n* articles included a power calculation that solved for power and *n* for effect size (see Supplementary Table 1 for all counts). *n* (%) articles we surveyed included human participants and *n* (%) included non-human animals. *n* (%) were protocols. Sampled articles were published in 2017 (n = *n*), 2018 (n = *n*), 2019 (n = *n*), 2020 (n = *n*), 2021 (n = *n*), and 2022 (n = *n*). The median Journal Impact Factor of included articles was *n* (IQR *n*-*n*).
+
+We estimate that between `r cisRound["pubmed","apriori.ci.lb"]` and `r cisRound["pubmed","apriori.ci.ub"]` articles indexed by PubMed and published since 2017 use G\*Power for a sample size calculation and that between `r cisRound["pubmed","aprioriANOVA.ci.lb"]` and `r cisRound["pubmed","aprioriANOVA.ci.ub"]` do so for a sample size calculation for an ANOVA (see Table 1 for additional details).
+
+To calculate the total number of articles using GPower in PubMed versus PMC, we simply multiplied the estimates by `r multFact %>% round(2)`, which is the number of articles indexed in PubMed from 2017 onwards divided by the number of articles indexed in PMC from 2017 onwards. This calculation assumes that all PMC articles are indexed in PubMed. If we want to take a conservative estimate and assume that 50% fewer articles that are indexed in PubMed, but not indexed in PMC, use GPower, then we would need to multiply the PMC estimates by `r multFact50 %>% round(2)` (i.e., 1 + (`r multFact %>% round(2)` - 1)*0.50) or the PubMed estimates by `r (multFact50/multFact) %>% round(2)` (i.e., `r multFact50 %>% round(2)`/`r multFact %>% round(2)`). For the rest of this article we will assume that the frequency of use of GPower in PMC and PubMed is the same. 
+
+```{r, Table1, include = TRUE, echo = FALSE, results = "asis"}
+knitr::kable(cisOut, caption = "Table 1. Estimates of the number of published articles that use GPower", booktabs = T, linesep = "", align = "c") %>% 
+  kable_styling(latex_options = "striped") %>%
+  kable_styling(latex_options = c("hold_position")) %>%
+  kable_styling(font_size = 8) %>% 
+    add_footnote(paste0("The table is divided into articles that use G*Power for: any power calculation related to any statistical test (Any power calculation), a power calculation for any statistical test that solves for sample size (Sample size calculation), and a power calculation for an ANOVA that solves for sample size (ANOVA sample size calculation). The total number of articles in each database since 2017 is: PubMed Central ", prettyNum(pmcTotal, big.mark=",", scientific=F), "; PubMed ", prettyNum(pubmedTotal, big.mark=",", scientific=F), "."), notation = "none", threeparttable = T) 
+```
+
+Example calculation for the rightmost columns of Table 2 and Table 3 (see attached R code for details):
+
+We estimate the total number of irreproducible power calculations using G*Power, published since 2017 and indexed in PubMed to be `r irreproducibleOut`
