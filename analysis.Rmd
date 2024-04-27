@@ -1,10 +1,12 @@
 ---
-title: "gpower_analysis_230915"
+title: "Table for G*Power manuscript"
 author: "Robert Thibault"
-date: "05/10/2022"
-output: 
-  html_document:
-    df_print: paged
+date: "today"
+output:
+  pdf_document: default
+header-includes: \usepackage[labelformat=empty]{caption}
+editor_options: 
+  chunk_output_type: console
 ---
 
 ```{r setup, include=FALSE}
@@ -802,102 +804,6 @@ anova_results <- data.frame(
                  "(95% CI)"
                )
   ) %>%
-  kable_styling(latex_options = "striped") %>%
-  add_footnote("temp", notation = "none", threeparttable = T)
-```
-
-```{r REC}
-# This chuck outputs all the results for the Research Ethics Committee Project
-
-# Import data
-filename <- paste0(getwd(), "/data/REC_data.csv")
-rec <- read.csv(filename, header = T)
-
-# Remove irrelevant variables
-rec <- rec %>% select(-c(database_link, database_number))
-
-# Create dataframes for only US and only UK institutions
-us <- rec %>% filter(country == "us" & !is.na(expenditure_rank))
-uk <- rec %>% filter(country == "uk" & !is.na(expenditure_rank))
-
-# Create a function to output all the values for the flowchart
-rec_flowchart <- function(df){ 
-  flowchart <- data.frame(
-    item = c(
-      "Institutions sampled",
-      "Public forms identified",
-      "Institutions contacted",
-      "Public forms identified after contact",
-      "Private forms provided",
-      "Forms indicated as not available to share", 
-      "No response"
-    ),
-    count = c(
-      nrow(df),
-      sum(df$included == 1 & df$contacted == 0),
-      sum(df$contacted == T),
-      sum(df$contacted == 1 & df$form_available == "public", na.rm = T),
-      sum(sum(df$contacted == 1 & df$form_available == "private", na.rm = T)),
-      sum(df$form_available == "declined", na.rm = T),
-      sum(df$form_available == "noreply" | is.na(df$form_available))
-    )
-  )
-  return(flowchart)
-}
-
-# Create a function to output all the values for the outcomes
-rec_outcomes <- function(df){
-  outcomes <- data.frame(
-    item = c(
-      "Sample size",
-      "Justification",
-      "Calculation",
-      "Calculation (indirectly)"
-    ),
-    count = c(
-      sum(df$sample_size, na.rm = TRUE),
-      sum(df$justification, na.rm = TRUE),
-      sum(df$calculation == 1, na.rm = TRUE),
-      sum(df$calculation == 99, na.rm = TRUE)
-    )
-  )
-  return(outcomes)
-}
-
-us_flowchart <- rec_flowchart(us)
-uk_flowchart <- rec_flowchart(uk)
-
-us_outcomes <- rec_outcomes(us)
-uk_outcomes <- rec_outcomes(uk)
-
-us_combined <- bind_rows(
-  rec_flowchart(us),
-  rec_outcomes(us)
-  )
-
-uk_combined <- bind_rows(
-  rec_flowchart(uk),
-  rec_outcomes(uk)
-  )
-
-rec_results <- cbind(
-  us_combined, 
-  uk_combined$count
-)
-```
-
-```{r, table_rec, include = TRUE, echo = FALSE, results = "asis"}
-  knitr::kable(rec_results, 
-               caption = "Table 101. REC results", 
-               booktabs = T, 
-               linesep = "\\addlinespace",
-        #       align = "lrrrrr",
-               col.names = c(
-                 "Flowchart item",
-                 "US (n)",
-                 "UK (n)"
-               )
-  ) %>%getwd
   kable_styling(latex_options = "striped") %>%
   add_footnote("temp", notation = "none", threeparttable = T)
 ```
