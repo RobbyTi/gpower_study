@@ -1,49 +1,43 @@
 ---
-title: "Table for G*Power manuscript"
+title: "Tables for G*Power manuscript"
 author: "Robert Thibault"
-date: "today"
+date: "`r Sys.Date()`"
 output:
   pdf_document: default
-header-includes: \usepackage[labelformat=empty]{caption}
+header-includes: 
+  - \usepackage[labelformat=empty]{caption}
+  - \pagestyle{empty}
 editor_options: 
   chunk_output_type: console
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(include = FALSE) # this option stops the code chunks from being output from the knit
-set.seed(1313)
+knitr::opts_chunk$set(include = FALSE) # This option stops the code chunks from being output from the knit
+set.seed(1313) # Set a seed for Monte Carlo simulations
 ```
 
 ```{r packages}
-library(tidyverse) # for cleaner code
-library(knitr) # for kable function
-library(kableExtra) # for kable table styling
-library(irr) # for inter-rater agreement calculations
-library(english) # to convert numbers to word equivalents via the function: words() 
-library(statpsych) # for the precision analysis
-library(table1) # for making Table 1
+library(tidyverse) # For cleaner code
+library(knitr) # For kable function
+library(kableExtra) # For kable table styling
+library(irr) # For inter-rater agreement calculations
 ```
 
 ```{r clean}
-# load the raw data
-filepath <- paste0(getwd(), "/data/data_main_raw.csv" )
+# Load the raw data
+filepath <- paste0(getwd(), "/../data/main_raw.csv" )
 raw <- read.csv(filepath, header = TRUE)
 df <- raw
 
 df <- df %>% 
-  # remove the columns for the initials of coders other than RTT, EZ, and HP (in the end, we only had these 3 coders)
+  # Remove the text column for identifying coders other than RTT, EZ, and HP (in the end, we only had these 3 coders)
   select(-coder_text) %>% 
-  # filter out the rows labeled "resolveNotes", in which we took some notes when resolving differences in coding in Google sheets.
+  # Filter out the rows labeled "resolveNotes", in which we took some notes when resolving differences in coding in Google sheets.
   filter(coder != "resolveNotes") %>% 
-  filter(id != "") %>%   # remove two irrelevant rows that Qualtrics exports
-  filter(id != "156") %>%  # remove extra paper RTT coded after we had reached our sample size, but that no one else coded.
+  filter(id != "") %>%   # Remove two irrelevant rows that Qualtrics exports
+  filter(id != "156") %>%  # Remove extra paper RTT coded after we had reached our sample size, but that no one else coded.
   
-  ############# TEMPORARILY REMOVE THESE TWO, UNTIL HUGO CODES THEM
-    filter(id != "143") %>%  
-    filter(id != "146") %>%  
-  ################
-  
-  # recode the $power_text column to 0.80, where relevant. This is necessary as we updated the Qualtrics extraction form to add a button for "Yes (0.80)" to speed up coding
+  # Recode the $power_text column to 0.80, where relevant. This is necessary as we updated the Qualtrics extraction form to add a button for "Yes (0.80)" to speed up coding
   mutate(
     power_text = if_else(power == "Yes (0.80)", "0.80", power_text),
     power = if_else(power == "Yes (0.80)", "Yes", power),
@@ -52,7 +46,7 @@ df <- df %>%
     alpha = if_else(alpha == "Yes (0.05)", "Yes", alpha)
   )
 
-# recode Yes/No columns to 1 (yes), 0 (no), and NA
+# Recode Yes/No columns to 1 (yes), 0 (no), and NA
 df <- 
   df %>% 
   mutate_at(c("version", "power", "alpha", "sample_size", "effect_size_value"),
@@ -73,11 +67,11 @@ df <-
       stat_test == "" ~ NA_integer_,
       TRUE ~ 1L
       ),
-  # make new column that checks how many sample size calculationss include all 6 elements
+  # Make new column that checks how many sample size calculations include all 6 elements
   all6 = (
     power + alpha + sample_size + effect_size_type_binary + effect_size_value + stat_test_binary
     ),
-  # recode some columns to binary that weren't previously only "Yes" and "No"
+  # Recode some columns to binary that weren't previously only "Yes" and "No"
   all6_binary = 
       case_when(
       all6 == 6 ~ 1L,
@@ -98,7 +92,7 @@ df <-
       )
   )
 
-# recode a few variables we changed during coding
+# Recode a few variables we changed part way through data collecting
 df <- df %>% 
   mutate(anova_within_between = 
       case_when(
@@ -121,14 +115,14 @@ df <- df %>%
   )
 
 
-# recode a few columns to numerics
+# Recode a few columns to numerics
 df$power_text <- as.numeric(df$power_text)
 df$alpha_text <- as.numeric(df$alpha_text)
 df$sample_size_text <- as.numeric(df$sample_size_text)
 df$effect_size_value_text <- as.numeric(df$effect_size_value_text)
 df$impact_factor <- as.numeric(df$impact_factor)
 
-# decompose the justifications variable
+# Decompose the justifications variable
 df$just_previous <- ifelse(grepl("Previous", df$justification), 1, 0)
 df$just_pilot <- ifelse(grepl("pilot data", df$justification), 1, 0)
 df$just_convention <- ifelse(grepl("Convention", df$justification), 1, 0)
@@ -137,33 +131,34 @@ df$just_none <- ifelse(grepl("No justification", df$justification), 1, 0)
 df$just_ref <- ifelse(grepl("Reference to other study", df$justification), 1, 0)
 df$just_other <- ifelse(grepl("Other", df$justification), 1, 0)
 
-# make a new dataframe that only includes the resolved coding
+# Make a new dataframe that only includes the resolved coding. We do this by selecting coders with "/" in the name, because these represent two coders (e.g., "RTT/EZ")
 df1_all <- df %>% filter(grepl("/", coder))
 
-# filter for articles that use GPower to solve for sample size
+# Filter for articles that use GPower to solve for sample size
 df1 <- df1_all %>% filter(grepl("Solves for sample size", power_calc_type))
 
-# remove blank rows
+# remove blank columns
 df1 <- df1 %>% 
-  select(-c(coder_number, participants_text, power_calc_type_text))
+  select(-c(coder_number, participants_text, power_calc_type_text)) %>% 
+  select(-stats_knowledge) # And this column because the values were for individual coders and we did not copy them into the resolved coding in a systematic way
 
-filename <- paste0(getwd(), "/data/data_main_clean.csv")
+filename <- paste0(getwd(), "/../data/main_clean.csv")
 write_csv(df1, filename)
 ```
 
 ```{r functions}
 
-# create function to calculate the point estimates and confidence intervals based on Monte Carlo sampling
+# Create function to calculate the point estimates and confidence intervals based on Monte Carlo sampling
 ci_calc <- function(num, denom){ 
      sim <- rbeta(100000, shape1=num, shape2=(denom-num)) # simulate the distribution
      point <- (quantile(sim, probs=0.5)) # calculate the point estimate and 95% CI bounds
-     lb <- (quantile(sim, probs=0.025))
-     ub <- (quantile(sim, probs=0.975))
-     cis <- c(point, lb, ub)
+     lb <- (quantile(sim, probs=0.025)) # lower bound
+     ub <- (quantile(sim, probs=0.975)) # upper bound
+     cis <- c(point, lb, ub) # confidence intervals
   return(cis)
 }
 
-#create function to create point estimates and confidence intervals as they'll appear in the table output
+# Create function to create point estimates and confidence intervals as they'll appear in the table output
 ci_clean <- function(ci){
   ci <- ci %>% round(2)
   ci_out <- paste0(ci[1], " (", ci[2], " - ", ci[3], ")")
@@ -188,7 +183,7 @@ point_percent <- function(ci){
 ```
 
 ```{r n_articles}
-# this chunk estimates the total number of published articles that use GPower for doing (1) any power calculation, (2) an a priori sample size calculation, or (3) an a priori sample size calculation for an ANOVA
+# This chunk estimates the total number of published articles that use GPower for doing (1) any power calculation, (2) an a priori sample size calculation, or (3) an a priori sample size calculation for an ANOVA
 
 denom_all <- nrow(df1_all) # number of articles coded
 denom <- nrow(df1) # number or articles with a sample size calc
@@ -200,10 +195,10 @@ pubmed_total = 7318980 # total number of PubMed articles published in that perio
 proportion <- pmc_hits/pmc_total # proportion of PMC articles that were hits
 mult_fact <- pubmed_total/pmc_total # the factor to multiply our findings for PMC articles to get an estimate for all PubMed articles.
 
-#initialize dataframe for point estimates and confidence intervals
+# Initialize dataframe for point estimates and confidence intervals
 cis <- data.frame(matrix(nrow=6, ncol=1))
 
-# run the function to calculate point estimates and confidence intervals 
+# Run the function to calculate point estimates and confidence intervals 
 cis <- as.data.frame(
   bind_cols(ci_calc(n_included, denom_all),
             ci_calc(denom, denom_all),
@@ -211,14 +206,14 @@ cis <- as.data.frame(
            )
 )
 
-# calculate cis for PMC database
+# Calculate cis for PMC database
 cis_pmc <- (cis * pmc_total * proportion) %>% 
   round(-3) %>% 
   summarise_all(ci_clean) %>% 
   t() %>% 
   as.data.frame()
 
-# calculate cis for PubMed database
+# Calculate cis for PubMed database
 cis_pubmed <- (cis * pubmed_total * proportion) %>% 
   round(-3) %>% 
   summarise_all(ci_clean) %>% 
@@ -237,24 +232,15 @@ colnames(cis_out) <- c("PubMed Central (95% CI)",
                        "PubMed (95% CI)"
                        )
 
-```
+n_per_any_calc <- pmc_hits/n_included
+n_per_sample_size_calc <- pmc_hits/denom
 
-```{r, table_n_articles, include = TRUE, echo = FALSE, results = "asis"}
-knitr::kable(cis_out, 
-             caption = "Table 1. Estimated number of articles published between 1 Jan 2017 and 31 May 2022 that reference the G*Power software.", 
-             booktabs = T, 
-             linesep = "\\addlinespace",
-             align = "rr") %>%
-  kable_styling(latex_options = "striped") %>%
-  kable_styling(latex_options = c("hold_position")) %>%
-  kable_styling(font_size = 10) %>% 
-  add_footnote(paste0("We excluded articles that discuss G*Power, but do not report using this software for a power calculation. The table includes rows for publications that report using G*Power for any power calculation related to any statistical test (Any power calculation), a power calculation for any statistical test that solves for sample size (Sample size calculation), and a power calculation for an ANOVA that solves for sample size (ANOVA sample size calculation). The total number of articles in each database from 1 Jan 2017 to 31 May 2022 is: PubMed Central ", prettyNum(pmc_total, big.mark=",", scientific=F), "; PubMed ", prettyNum(pubmed_total, big.mark=",", scientific=F), "Numbers are rounded to the nearest thousand to avoid suggesting a higher level of precision than this estimation provides."), notation = "none", threeparttable = T)
+
 ```
 
 ```{r calc_type}
 
-
-# calculate how many articles report solving for each of these elements
+# Calculate how many articles report solving for each of these elements
 calc_type <- data.frame(
   type = c("Sample  size",
            "Power",
@@ -269,32 +255,22 @@ calc_type <- data.frame(
            sum(grepl("Unsure", df1_all$power_calc_type))
   )
 ) %>% 
-# calculate percentage and confidence intervals
+# Calculate percentage and confidence intervals
   rowwise() %>% 
   mutate(point = point_percent(ci_calc(Freq, n_included))) %>% 
   mutate(ci = ci_percent(ci_calc(Freq, n_included))) %>% 
   ungroup()
 
-colnames(calc_type) <- c("Power calculation solving for",
+colnames(calc_type) <- c("Power calculation solved for:",
                          paste0("N=", n_included),
-                         "Percentage", 
+                         "Percent", 
                          "(95% CI)"
 )
 
 ```
 
-```{r, table_calc_type, include = TRUE, echo = FALSE, results = "asis"}
-knitr::kable(calc_type, 
-             caption = "Table 2. Types of power calculations.", 
-             booktabs = T, 
-             linesep = "\\addlinespace",
-             align = "lrrr") %>%
-  kable_styling(latex_options = "striped") %>%
-  add_footnote("The sum of the first column is greater than n = 140 because four articles performed multiple power calculations that solved for different elements.We only coded *Sample size (after completing the study)* when an article unambiguously described a calculation for a future study. ", notation = "none", threeparttable = T)
-```
-
 ```{r reproducibility}
-# recode columns to have fewer factors that will fit more cleanly into a table
+# Recode columns to have fewer factors that will fit more cleanly into a table
 df1 <- df1 %>% 
   mutate(reproducible_factor = 
            case_when(
@@ -368,7 +344,7 @@ df1 <- df1 %>%
            )
   )
 
-# order the levels of the factors for clarity
+# Order the levels of the factors for clarity
 df1$reproducible_factor <- factor(df1$reproducible_factor, levels = c("Yes, without assumptions", "Likely, with assumptions", "No"))
 df1$all6_factor <- factor(df1$all6_factor, levels = c("Yes", "No"))
 df1$alpha_factor <- factor(df1$alpha_factor, levels = c("0.05", "Other", "Not reported"))
@@ -382,7 +358,7 @@ df1$error_factor <- factor(df1$error_factor, levels = c("Yes", "No", "Unsure"))
 df1$match_factor <- factor(df1$match_factor, levels = c("Yes", "No", "Unsure", "NA (protocol)"))
 
 
-# create dataframe with the information to present in a table
+# Create dataframe with the information to present in a table
 t_repro <- bind_rows(table(df1$reproducible_factor) %>% as.data.frame(),
               table(df1$all6_factor) %>% as.data.frame(),
               table(df1$alpha_factor) %>% as.data.frame(),
@@ -398,16 +374,6 @@ t_repro <- bind_rows(table(df1$reproducible_factor) %>% as.data.frame(),
   mutate(ci = ci_percent(ci_calc(Freq, denom))) %>% 
   ungroup()
 
-# make marker numbers for where to break the table using kable
-r1 <- nlevels(df1$reproducible_factor)
-r2 <- r1 + nlevels(df1$all6_factor)
-r3 <- r2 + nlevels(df1$alpha_factor)
-r4 <- r3 + nlevels(df1$power_factor)
-r5 <- r4 + nlevels(df1$effect_size_type_factor)
-r6 <- r5 + nlevels(df1$effect_size_value_factor)
-r7 <- r6 + nlevels(df1$stat_test_factor)
-r8 <- r7 + nlevels(df1$sample_size_factor)
-
 colnames(t_repro) <- c("Transparency element",
                        paste0("N=", denom),
                        "Percent",
@@ -420,40 +386,39 @@ IQR_high_sample_size <- quantile(df1$sample_size_text, 0.75, na.rm = TRUE) %>% r
 
 ```
 
-```{r, table_reproducibility, include = TRUE, echo = FALSE, results = "asis"}
-knitr::kable(t_repro, 
-             caption = "Table 3. Reproducibility of sample size calculations from a random sample of publications referencing G*Power", 
-             booktabs = T, 
-             linesep = "\\addlinespace", 
-             align = "lrrr") %>%
-kable_styling() %>%
-  pack_rows("Reproducible", 1, r1) %>%
-  pack_rows("All 6 elements reported†", r1+1, r2) %>%
-  pack_rows("Alpha", r2+1, r3) %>%
-  pack_rows("Power", r3+1, r4) %>%
-  pack_rows("Effect size type", r4+1, r5) %>%
-  pack_rows("Effect size value", r5+1, r6) %>%
-  pack_rows("Statistical test", r6+1, r7) %>%
-  pack_rows("Sample size‡", r7+1, r8) %>%
-  kable_styling(latex_options = "striped") %>% 
-  add_footnote(paste0("*We use the term 'likely' because we cannot be certain that all of our assumptions were correct. †These six elements are: alpha, power or beta, effect size type, effect size vale, statistical test, and sample size. We considered statistical test reported if they named the general test, even if details were missing (e.g., reporting an ANOVA, but not what type of ANOVA. ‡The median sample size was ", median_sample_size, " (IQR: ", IQR_low_sample_size, " to ", IQR_high_sample_size, ")."), notation = "none", threeparttable = T)
-```
-
 ```{r characteristics}
-# create a table with the article characteristics (in other words, the typical "Table 1" of many manuscripts)
+# Create a table of the publishers to add to the characteristics table
+publishers_main <- table(df1$publisher) %>% as.data.frame() %>% arrange(desc(Freq))
+
+# Sum rows 8 to 38 for publishers with only 1 or 2 articles in our sample
+publishers_other <- sum(publishers_main$Freq[8:38])
+publishers_other <- data.frame(Var1 = "Other", Freq = publishers_other)
+
+# Combine the first 7 rows and the 'other' row into a new dataframe
+publishers <- rbind(publishers_main[1:7, ], publishers_other)
+
+# I rewrote these, otherwise they are all in capital letter and it doesn't look nice in the table.
+publishers$Var1 <- c(
+                    "BMC",
+                    "MDPI",
+                    "Frontiers Media SA",
+                    "PLOS",
+                    "Springer",
+                    "Wiley",
+                    "Nature Portfolio",
+                    "Other"
+                    )
+
+# Create a table with the article characteristics (in other words, the typical "Table 1" of many manuscripts)
 t_char <- bind_rows(
               table(df1$participants) %>% as.data.frame(),
               table(df1$pub_year) %>% as.data.frame(),
               table(df1$protocol) %>% as.data.frame() %>% arrange(Freq),
               table(df1$multiple) %>% as.data.frame() %>% arrange(Freq),
+              publishers
               ) %>% 
   mutate(perc = paste0((Freq / denom) %>% round(2) * 100, "%")
   )
-
-r1 <- nrow(table(df1$participants))
-r2 <- r1 + nrow(table(df1$pub_year))
-r3 <- r2 + nrow(table(df1$protocol))
-r4 <- r3 + nrow(table(df1$multiple))
 
 colnames(t_char) <- c("Article characteristic",
                        paste0("N=", denom),
@@ -471,42 +436,10 @@ pub <- table(df1$publisher) %>%
 
 colnames(pub) <- c("publisher", "Freq")
 
-
-# clean up this code to output the publisher counts.
-sum(df1$publisher == "BMC")
-sum(df1$publisher == "MDPI")
-sum(df1$publisher == "FRONTIERS MEDIA SA")
-sum(df1$publisher == "SPRINGER")
-sum(df1$publisher == "WILEY")
-
-pub_other <- denom - (sum(df1$publisher == "BMC") +
-sum(df1$publisher == "MDPI") +
-sum(df1$publisher == "FRONTIERS MEDIA SA") +
-sum(df1$publisher == "SPRINGER") +
-sum(df1$publisher == "WILEY")
-)
-
-x <- nrow(pub) - 5
-
-```
-
-```{r, table_characteristics, include = TRUE, echo = FALSE, results = "asis"}
-knitr::kable(t_char, 
-             caption = "Supplementary Table 1. Article characteristics", 
-             booktabs = T, 
-             linesep = "\\addlinespace", 
-             align = "lrr") %>%
-kable_styling() %>%
-  pack_rows("Unit of study", 1, r1) %>%
-  pack_rows("Year of publication", r1+1, r2) %>%
-  pack_rows("Protocol", r2+1, r3) %>%
-  pack_rows("Multiple sample size calculations", r3+1, r4) %>%
-  kable_styling(latex_options = "striped") %>% 
-  add_footnote(paste0("The median journal impact factor was ", median_impact_factor, " (range: ", min_impact_factor, " to ", max_impact_factor, "). ", n_no_impact_factor, " articles were pubished in journals that did not have an impact factor."), notation = "none", threeparttable = T)
 ```
 
 ```{r quality}
-# make a dataframe of the justification, so they are all binary, ordered from most common to least common
+# Make a dataframe of the justification, so they are all binary, ordered from most common to least common
 justification <- data.frame(
   Var1 = c(
           "Previously published research",
@@ -528,7 +461,7 @@ justification <- data.frame(
         )
 )
 
-# combine all quality factors into a single dataframe
+# Combine all quality factors into a single dataframe
 t_qual <- bind_rows(table(df1$match_factor) %>% as.data.frame(),
                     table(df1$error_factor) %>% as.data.frame(),
                     table(df1$mult_compare_factor) %>% as.data.frame(),
@@ -539,13 +472,7 @@ t_qual <- bind_rows(table(df1$match_factor) %>% as.data.frame(),
   mutate(ci = ci_percent(ci_calc(Freq, denom))) %>% 
   ungroup()
 
-# index for kable function
-r1 <- nlevels(df1$match_factor)
-r2 <- r1 + nlevels(df1$error_factor)
-r3 <- r2 + nlevels(df1$mult_compare_factor)
-r4 <- r3 + nrow(justification)
-
-# replace the ci for the one element with 0 hits with NA
+# Replace the ci for the one element with 0 hits with NA
 i <- grepl("- <1%", t_qual$ci) %>% 
   which()
 t_qual$ci[i] <- "(NA)"
@@ -556,21 +483,6 @@ colnames(t_qual) <- c("Quality measure",
                        "(95% CI)"
                        )
 
-```
-
-```{r, table_qual, include = TRUE, echo = FALSE, results = "asis"}
-knitr::kable(t_qual, 
-             caption = "Table 4. Measures of quality of the sample size calculations", 
-             booktabs = T, 
-             linesep = "\\addlinespace",
-             align = "lrrr") %>%
-kable_styling() %>%
-  pack_rows("Analysis match", 1, r1) %>%
-  pack_rows("Error", r1+1, r2) %>%
-  pack_rows("Adjusted for multiple comparisons", r2+1, r3) %>%
-  pack_rows("Justification for chosen effect size", r3+1, r4) %>%
-  kable_styling(latex_options = "striped") %>%
-  add_footnote("Some articles provided more than one justification for their chosen sample size, and thus the sum of the percentages exceeds 100%.", notation = "none", threeparttable = T)
 ```
 
 ```{r kappa}
@@ -610,7 +522,7 @@ inter_rater <- function(df, variables, prescreen_questions){
 }
 
 
-# select variables to calculate inter-rater agreement for when looking at all articles we assessed (both included and excluded articles). The variables it doesn't make sense to calculate agreement for are commented out.
+# Select variables to calculate inter-rater agreement for when looking at all articles we assessed (both included and excluded articles). The variables it doesn't make sense to calculate agreement for are commented out.
 variables1 <- c(
   "id",
 #  "coder",
@@ -621,19 +533,20 @@ variables1 <- c(
   "include"
 )
 
+# Call the function we create above
 kappa_include <- inter_rater(df, variables1, TRUE)
 
-# identify ids for included articles
+# Identify ids for included articles
 id_include <- df %>% filter(grepl("/", coder)) %>% 
   filter(include == "Include") %>% 
   select(id)
 
-# remove excluded articles based on their id. This is necessary to calculate inter-rater agreement for the other variables. 
+# Remove excluded articles based on their id. This is necessary to calculate inter-rater agreement for the other variables. 
 df_kappa <- df %>% filter(id %in% id_include$id)
 
-# now that I've removed the excluded articles, I can calculate inter-rater agreement for the variables coded for all included article. All these questions were answered before the survey allowed the coder to select the option "I don't have the expertise for this article".
+# Now that I've removed the excluded articles, I can calculate inter-rater agreement for the variables coded for all included article. All these questions were answered before the survey allowed the coder to select the option "I don't have the expertise for this article".
 
-# select variables to calculate inter-rater agreement for when looking at all included articles. The variables it doesn't make sense to calculate agreement for are commented out.
+# Select variables to calculate inter-rater agreement for when looking at all included articles. The variables it doesn't make sense to calculate agreement for are commented out.
 variables2 <- c(
   "participants",
 #  "participants_text",
@@ -653,20 +566,19 @@ df_kappa$impact_factor <- ifelse(is.na(df_kappa$impact_factor), -100, df_kappa$i
 
 kappa_any_power_calc <- inter_rater(df_kappa, variables2, TRUE)
 
-# return the impact factors to NA. I only needed them to be a number for the n_disagreement variable
-# df$impact_factor <- ifelse(is.na(df$impact_factor), -100, df$impact_factor)
+# Return the impact factors to NA. I only needed them to be a number for the n_disagreement variable
 
-# identify ids for articles not solving for sample size
+# Identify ids for articles not solving for sample size
 id_sample_size_calc <- df %>% filter(grepl("/", coder)) %>% 
   filter(power_calc_type == "Solves for sample size (often called a priori)") %>% 
   select(id)
 
-# remove articles that don't solve for sample size based on their id. This is necessary to calculate inter-rater agreement for the other variables. 
+# Remove articles that don't solve for sample size based on their id. This is necessary to calculate inter-rater agreement for the remaining variables. 
 df_kappa <- df_kappa %>% filter(id %in% id_sample_size_calc$id)
 
-# calculate inter-rater agreement for all relevant variables
+# Calculate inter-rater agreement for all relevant variables
 
-# select variables to calculate inter-rater agreement for when looking only at articles with a sample size calculation. The variables it doesn't make sense to calculate agreement for are commented out.
+# Select variables to calculate inter-rater agreement for when looking only at articles with a sample size calculation. The variables it doesn't make sense to calculate agreement for are commented out.
 variables3 <- c(
   "version",
   "version_text",
@@ -711,7 +623,7 @@ variables3 <- c(
 
 kappa_sample_size_calc <- inter_rater(df_kappa, variables3, FALSE)
 
-# merge all inter-rater agreement scores
+# Merge all inter-rater agreement scores
 kappa_all <- rbind(kappa_include,
                    kappa_any_power_calc,
                    kappa_sample_size_calc
@@ -722,33 +634,17 @@ kappa_all <- kappa_all %>%
 
 ```
 
-```{r, table_kappa, include = TRUE, echo = FALSE, results = "asis"}
-  knitr::kable(kappa_all, 
-               caption = "Supplementary Table 2. Inter-rater agreement", 
-               booktabs = T, 
-               linesep = "\\addlinespace",
-               align = "lrrrrr",
-               col.names = c("Variable",
-                         "Cohen's k",
-                         "Percent agreed",
-                         "n disagreed",
-                         "n total",
-                         "n categories"
-                         )) %>%
-    kable_styling(latex_options = "striped") %>%
-    add_footnote("The variables are listed as they appear in the open data. See the data dictionary for a description of each variable. Cohen's kappa is mostly irrelevant for variables with a large number of categories, and can be ignored. Not all variables were relevant for all articles we coded; thus, 'n total' differs among the variables. 'justification was coded as a radio question with 7 options. We re-coded this variable into 7 binary variables and calculate the inter-rater agreement for each one.", notation = "none", threeparttable = T)
-```
-
 ```{r anova}
 
-filename <- paste0(getwd(), "/data/data_anova_raw.csv")
-raw_anova <- read.csv(filename, header = T)
+filename <- paste0(getwd(), "/../data/anova_raw.csv")
+raw_anova <- read.csv(filename, fileEncoding = "UTF-8", header = T)
 df_anova_new <- raw_anova %>% 
   select(-c(coder_text, participants_text)
          )
 
 df1_anova_new <- df_anova_new %>% filter(grepl("/", coder))
 
+# Format the anova data from the main dataset to match the number of columns in the anova specific dataset
 df1_anova_original <- df1 %>% select(c(id,	
                                        coder,	
                                        pmcid,
@@ -767,10 +663,11 @@ df1_anova_original <- df1 %>% select(c(id,
   filter(grepl("Yes, ", anova_within_between)
   )
 
+# This line is needed so the two datasets will bind properly
 df1_anova_new$pub_year <- as.character(df1_anova_new$pub_year)
 
+# Combine the rows that had anovas in the main dataset with the anova specific dataset
 df1_anova <- bind_rows(df1_anova_original, df1_anova_new)
-
 
 anova_results <- data.frame(
   item = c(
@@ -791,19 +688,144 @@ anova_results <- data.frame(
 
 ```
 
+<!-- OUTPUTS -->
+
+```{r, table_calc_type, include = TRUE, echo = FALSE, results = "asis"}
+knitr::kable(calc_type, 
+             caption = "Table 1. Types of power calculations.", 
+             booktabs = T, 
+             linesep = "\\addlinespace",
+             align = "lrrr") %>%
+  kable_styling(latex_options = "striped") %>%
+  add_footnote("The sum of the first column is greater than n = 141 because four articles performed multiple power calculations that solved fosr different variables. We only coded `Sample size (after completing the study)' when an article unambiguously performed their calculation for a future study.", notation = "none", threeparttable = T)
+```
+
+```{r, table_reproducibility, include = TRUE, echo = FALSE, results = "asis"}
+# make marker numbers for where to break the table using kable
+r1 <- nlevels(df1$reproducible_factor)
+r2 <- r1 + nlevels(df1$all6_factor)
+r3 <- r2 + nlevels(df1$alpha_factor)
+r4 <- r3 + nlevels(df1$power_factor)
+r5 <- r4 + nlevels(df1$effect_size_type_factor)
+r6 <- r5 + nlevels(df1$effect_size_value_factor)
+r7 <- r6 + nlevels(df1$stat_test_factor)
+r8 <- r7 + nlevels(df1$sample_size_factor)
+
+knitr::kable(t_repro, 
+             caption = "Table 2. Reproducibility of sample size calculations performed using G*Power.", 
+             booktabs = T, 
+             linesep = "\\addlinespace", 
+             align = "lrrr") %>%
+kable_styling() %>%
+  pack_rows("Reproducible", 1, r1) %>%
+  pack_rows("All 6 elements reported†", r1+1, r2) %>%
+  pack_rows("Alpha", r2+1, r3) %>%
+  pack_rows("Power", r3+1, r4) %>%
+  pack_rows("Effect size type", r4+1, r5) %>%
+  pack_rows("Effect size value", r5+1, r6) %>%
+  pack_rows("Statistical test", r6+1, r7) %>%
+  pack_rows("Sample size‡", r7+1, r8) %>%
+  kable_styling(latex_options = "striped") %>% 
+  add_footnote(paste0("We use the term `likely' because we cannot be certain that all of our assumptions were correct. *These six elements are: alpha, power or beta, effect size type, effect size vale, statistical test, and sample size. We considered statistical test reported if they named the general test, even if details were missing (e.g., reporting an ANOVA, but not what type of ANOVA). †The median sample size was ", median_sample_size, " (IQR: ", IQR_low_sample_size, " to ", IQR_high_sample_size, ")."), notation = "none", threeparttable = T)
+```
+
+```{r, table_characteristics, include = TRUE, echo = FALSE, results = "asis"}
+r1 <- nrow(table(df1$participants))
+r2 <- r1 + nrow(table(df1$pub_year))
+r3 <- r2 + nrow(table(df1$protocol))
+r4 <- r3 + nrow(table(df1$multiple))
+r5 <- r4 + nrow(publishers)
+
+knitr::kable(t_char, 
+             caption = "Table 3. Article characteristics", 
+             booktabs = T, 
+             linesep = "\\addlinespace", 
+             align = "lrr") %>%
+kable_styling() %>%
+  pack_rows("Unit of study", 1, r1) %>%
+  pack_rows("Year of publication", r1+1, r2) %>%
+  pack_rows("Protocol article", r2+1, r3) %>%
+  pack_rows("Multiple sample size calculations", r3+1, r4) %>%
+  pack_rows("Publisher", r4+1, r5) %>%
+  kable_styling(latex_options = "striped") %>% 
+  add_footnote(paste0("The median journal impact factor was ", median_impact_factor, " (range: ", min_impact_factor, " to ", max_impact_factor, "). ", n_no_impact_factor, " articles were pubished in journals that did not have an impact factor."), notation = "none", threeparttable = T)
+```
+
+```{r, table_qual, include = TRUE, echo = FALSE, results = "asis"}
+# Index for kable function
+r1 <- nlevels(df1$match_factor)
+r2 <- r1 + nlevels(df1$error_factor)
+r3 <- r2 + nlevels(df1$mult_compare_factor)
+r4 <- r3 + nrow(justification)
+
+knitr::kable(t_qual, 
+             caption = "Table 4. Quality of the sample size calculations performed using G*Power", 
+             booktabs = T, 
+             linesep = "\\addlinespace",
+             align = "lrrr") %>%
+kable_styling() %>%
+  pack_rows("Analysis match in results section", 1, r1) %>%
+  pack_rows("Error", r1+1, r2) %>%
+  pack_rows("Adjusted for multiple comparisons", r2+1, r3) %>%
+  pack_rows("Justification for chosen effect size*", r3+1, r4) %>%
+  kable_styling(latex_options = "striped") %>%
+  add_footnote("*Some articles provided more than one justification for their chosen sample size, and thus the sum of the percentages is greater than 100%.", notation = "none", threeparttable = T)
+```
+
 ```{r, table_anova, include = TRUE, echo = FALSE, results = "asis"}
   knitr::kable(anova_results, 
-               caption = "Table 100. ANOVA outcomes", 
+               caption = "Table 5. Selection of default ANOVA option", 
                booktabs = T, 
                linesep = "\\addlinespace",
-        #       align = "lrrrrr",
                col.names = c(
                  "Option used",
-                 "N=37",
+                 "N=36",
                  "Percent",
                  "(95% CI)"
                )
   ) %>%
-  kable_styling(latex_options = "striped") %>%
-  add_footnote("temp", notation = "none", threeparttable = T)
+  kable_styling(latex_options = "striped")
 ```
+
+```{r, table_n_articles, include = TRUE, echo = FALSE, results = "asis"}
+knitr::kable(cis_out, 
+             caption = "Supplementary Table 1. Estimated number of articles published between 1 Jan 2017 and 31 May 2022 that reference G*Power", 
+             booktabs = T, 
+             linesep = "\\addlinespace",
+             align = "rr") %>%
+  kable_styling(latex_options = "striped") %>%
+  kable_styling(latex_options = c("hold_position")) %>%
+  kable_styling(font_size = 10) %>% 
+  add_footnote(paste0("We excluded articles that discuss G*Power, but do not report using this software for a power calculation. The table includes rows for publications that report using G*Power for any power calculation related to any statistical test (any power calculation), a power calculation for any statistical test that solves for sample size (sample size calculation), and a power calculation for an ANOVA that solves for sample size (ANOVA sample size calculation). The total number of articles in each database from 1 Jan 2017 to 31 May 2022 is: PubMed Central ", prettyNum(pmc_total, big.mark=",", scientific=F), "; PubMed ", prettyNum(pubmed_total, big.mark=",", scientific=F), ". Numbers are rounded to the nearest thousand to avoid suggesting a higher level of precision than our method of estimation can provide."), notation = "none", threeparttable = T)
+```
+
+```{r, table_kappa, include = TRUE, echo = FALSE, results = "asis"}
+  knitr::kable(kappa_all, 
+               caption = "Supplementary Table 2. Inter-rater agreement", 
+               booktabs = T, 
+               linesep = "\\addlinespace",
+               align = "lrrrrr",
+               col.names = c("Variable",
+                         "Cohen's k",
+                         "Percent agreed",
+                         "n disagreed",
+                         "n total",
+                         "n categories"
+                         )) %>%
+    kable_styling(latex_options = "striped") %>%
+    add_footnote("The variables are listed as they appear in the open data. See the data dictionary for a description of each variable. Cohen's kappa is mostly irrelevant for variables with a large number of categories, and can be ignored. Not all variables were relevant for all articles we coded; thus, 'n total' differs among the variables. `justification' was coded as a radio question with 7 options. We re-coded this variable into 7 binary variables and calculate the inter-rater agreement for each one.", notation = "none", threeparttable = T)
+```
+
+n articles in PMC per 1 that uses GPower for any calculation: `r round(n_per_any_calc, 0)`  
+n articles in PMC per 1 that uses GPower for a sample size calculation: `r round(n_per_sample_size_calc, 0)`  
+
+```{r table_csvs}
+write_csv(calc_type, paste0(getwd(), "/../results/table1.csv"))
+write_csv(t_repro, paste0(getwd(), "/../results/table2.csv"))
+write_csv(t_char, paste0(getwd(), "/../results/table3.csv"))
+write_csv(t_qual, paste0(getwd(), "/../results/table4.csv"))
+write_csv(anova_results, paste0(getwd(), "/../results/table5.csv"))
+write_csv(cis_out, paste0(getwd(), "/../results/supplementary_table1.csv"))
+write_csv(kappa_all, paste0(getwd(), "/../results/supplementary_table2.csv"))
+```
+

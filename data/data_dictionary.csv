@@ -1,0 +1,11 @@
+Information about each variable in the main_raw.csv is outlined in Row 2 of that dataset.
+
+"To see the exact text and coding options for each variable, you can open materials/codingForm_main.pdf"
+
+anova_raw.csv contains a subset of the variable from main_raw.csv
+
+main_clean.csv contains a few additional variable that are calculated from the values in main_raw.csv
+
+"Variables ending in ""_binary"" is simply a yes/no as to wether the sample size calculation in question included information in that variable (1=yes;0=no)"
+"Variable starting with ""just_"" are simply a decomposition of the ""justification"" variable (which had 7 options), into binary variable for each individual option"
+"""all6"" outlines how many of the six elements of the sample size calculation were provided"
