@@ -1,6 +1,6 @@
 This repository contains the code, data, and other materials related to the manuscript "An evaluation of reproducibility and errors in statistical power calculations performed using GPower". The purpose of this study was to assess the reproducibility and quality of sample size calculations in published articles and conducted using the GPower software.
 
-# This repository contains 4 folders
+# This repository contains 5 folders:
 
 ## /code
 This folder contains:
