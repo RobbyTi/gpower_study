@@ -78,7 +78,7 @@ df <-
       all6 < 6 ~ 0L,
       is.na(all6) ~ NA_integer_
       ),
-  reproducibile_binary = 
+  reproducible_binary = 
       case_when(
       grepl("Yes", reproducible) ~ 1L,
       reproducible == "No" ~ 0L,
@@ -179,6 +179,19 @@ point_percent <- function(ci){
   return(ci_out)
 }
 
+# Create function to calculate the point estimates and confidence intervals based on Monte Carlo sampling. This function combines to proportions.  
+ci_calc2 <- function(num1, denom1, num2, denom2){ 
+     sim1 <- rbeta(100000, shape1=num1, shape2=(denom1-num1)) # simulate the distribution
+     sim2 <- rbeta(100000, shape1=num2, shape2=(denom2-num2)) # simulate the distribution
+     sim <- sim1 * sim2
+     point <- (quantile(sim, probs=0.5)) # calculate the point estimate and 95% CI bounds
+     lb <- (quantile(sim, probs=0.025)) # lower bound
+     ub <- (quantile(sim, probs=0.975)) # upper bound
+     cis <- c(point, lb, ub) # confidence intervals
+  return(cis)
+}
+
+
 
 ```
 
@@ -206,6 +219,14 @@ cis <- as.data.frame(
            )
 )
 
+# Calculate cis for the proportion of publications that use G*Power (output is in percentages)
+cis_prop_any <- (ci_calc2(pmc_hits, pmc_total, n_included, denom_all) * 100) %>% 
+  ci_clean()
+
+# Calculate cis for the proportion of publications that use G*Power (output is in percentages)
+cis_prop_sample_size <- (ci_calc2(pmc_hits, pmc_total, denom, denom_all) * 100) %>% 
+  ci_clean()
+
 # Calculate cis for PMC database
 cis_pmc <- (cis * pmc_total * proportion) %>% 
   round(-3) %>% 
@@ -232,9 +253,8 @@ colnames(cis_out) <- c("PubMed Central (95% CI)",
                        "PubMed (95% CI)"
                        )
 
-n_per_any_calc <- pmc_hits/n_included
-n_per_sample_size_calc <- pmc_hits/denom
-
+n_per_any <- 1 / (proportion * (n_included / denom_all))
+n_per_sample_size <- 1 / (proportion * (denom/ denom_all)) 
 
 ```
 
@@ -688,6 +708,89 @@ anova_results <- data.frame(
 
 ```
 
+```{r effect_size}
+
+cohensd <- function(m1, m2, sem1, sem2, n1, n2){ 
+  # Calculate standard deviations from SEM
+  sd1 <- sem1 * sqrt(n1)
+  sd2 <- sem2 * sqrt(n2)
+  
+  # Calculate pooled standard deviation
+  sd_pooled <- sqrt((sd1^2 + sd2^2) / 2)
+  
+  dif <- m1 - m2
+  
+  # Calculate Cohen's d
+  cohensd <- (m1 - m2) / sd_pooled
+  
+  all <- c(
+    sd1,
+    sd2,
+    sd_pooled,
+    dif,
+    cohensd
+  )
+  
+  return(all)
+}
+
+# Data taken from Table 9 and Table 11 of https://www.cdc.gov/nchs/data/series/sr_03/sr03-046-508.pdf
+
+# All people over 20 years of age
+es_height <- cohensd(
+  m1 = 175.3, 
+  m2 = 161.3,
+  sem1 = 0.19,
+  sem2 = 0.19,
+  n1 = 5092,
+  n2 = 5510
+)
+
+# All people from 20-29 years of age
+es_height_age <- cohensd(
+  m1 = 175.8,
+  m2 = 162.6,
+  sem1 = 0.30,
+  sem2 = 0.32,
+  n1 = 802,
+  n2 = 892
+)
+
+# Non-Hispanic white people from 20-39 years of age
+es_height_age_race <- cohensd(
+  m1 = 178.0,
+  m2 = 164.5,
+  sem1 = 0.39,
+  sem2 = 0.31,
+  n1 = 490,
+  n2 = 545
+)
+
+```
+
+```{r by_participant}
+
+# Filter for articles with reproducible or likely reproducible sample size calculations
+df1_repro <- df1 %>% 
+  filter(grepl("Yes", reproducible)) 
+
+# Sum of participants in studies with reproducible sample size calculations
+n_participants_repro <- sum(df1_repro$sample_size_text)
+
+# Filter for articles with non-reproducible sample size calculations
+df1_non_repro <- df1 %>% 
+  filter(grepl("No", reproducible)) %>% 
+  filter(!is.na(sample_size_text))
+
+# Sum of participants in studies with non-reproducible sample size calculations
+n_participants_non_repro <- sum(df1_non_repro$sample_size_text) +
+                              5 * median(df1_non_repro$sample_size_text) # to account for the 5 sample sizes that were not reported for the non-reproducible sample size calculations.
+
+perc_participants_repro <- (n_participants_repro / (n_participants_repro + n_participants_non_repro)) %>% round(2)
+
+
+```
+
 <!-- OUTPUTS -->
 
 ```{r, table_calc_type, include = TRUE, echo = FALSE, results = "asis"}
@@ -697,7 +800,7 @@ knitr::kable(calc_type,
              linesep = "\\addlinespace",
              align = "lrrr") %>%
   kable_styling(latex_options = "striped") %>%
-  add_footnote("The sum of the first column is greater than n = 141 because four articles performed multiple power calculations that solved fosr different variables. We only coded `Sample size (after completing the study)' when an article unambiguously performed their calculation for a future study.", notation = "none", threeparttable = T)
+  add_footnote("The sum of the first column is greater than n = 141 because four articles performed multiple power calculations that solved for different variables. We only coded `Sample size (after completing the study)' when an article unambiguously performed their calculation for a future study. Some articles used G*Power to calculate effect sizes after a study was complete.", notation = "none", threeparttable = T)
 ```
 
 ```{r, table_reproducibility, include = TRUE, echo = FALSE, results = "asis"}
@@ -717,7 +820,7 @@ knitr::kable(t_repro,
              linesep = "\\addlinespace", 
              align = "lrrr") %>%
 kable_styling() %>%
-  pack_rows("Reproducible", 1, r1) %>%
+  pack_rows("Reproducible*", 1, r1) %>%
   pack_rows("All 6 elements reported†", r1+1, r2) %>%
   pack_rows("Alpha", r2+1, r3) %>%
   pack_rows("Power", r3+1, r4) %>%
@@ -726,7 +829,7 @@ kable_styling() %>%
   pack_rows("Statistical test", r6+1, r7) %>%
   pack_rows("Sample size‡", r7+1, r8) %>%
   kable_styling(latex_options = "striped") %>% 
-  add_footnote(paste0("We use the term `likely' because we cannot be certain that all of our assumptions were correct. *These six elements are: alpha, power or beta, effect size type, effect size vale, statistical test, and sample size. We considered statistical test reported if they named the general test, even if details were missing (e.g., reporting an ANOVA, but not what type of ANOVA). †The median sample size was ", median_sample_size, " (IQR: ", IQR_low_sample_size, " to ", IQR_high_sample_size, ")."), notation = "none", threeparttable = T)
+  add_footnote(paste0("*We use the term `likely' because we cannot be certain that all of our assumptions were correct. †These six elements are: alpha, power or beta, effect size type, effect size value, statistical test, and sample size. We considered statistical test reported if they named the general test, even if details were missing (e.g., reporting an ANOVA, but not what type of ANOVA). ‡The median sample size was ", median_sample_size, " (IQR: ", IQR_low_sample_size, " to ", IQR_high_sample_size, ")."), notation = "none", threeparttable = T)
 ```
 
 ```{r, table_characteristics, include = TRUE, echo = FALSE, results = "asis"}
@@ -748,7 +851,7 @@ kable_styling() %>%
   pack_rows("Multiple sample size calculations", r3+1, r4) %>%
   pack_rows("Publisher", r4+1, r5) %>%
   kable_styling(latex_options = "striped") %>% 
-  add_footnote(paste0("The median journal impact factor was ", median_impact_factor, " (range: ", min_impact_factor, " to ", max_impact_factor, "). ", n_no_impact_factor, " articles were pubished in journals that did not have an impact factor."), notation = "none", threeparttable = T)
+  add_footnote(paste0("The median journal impact factor was ", median_impact_factor, " (range: ", min_impact_factor, " to ", max_impact_factor, "). ", n_no_impact_factor, " articles were pubished in journals that did not have an impact factor. Year 2023 contains fewer articles than the preceeding years because we only sampled until May 31, rather than the entire year."), notation = "none", threeparttable = T)
 ```
 
 ```{r, table_qual, include = TRUE, echo = FALSE, results = "asis"}
@@ -813,11 +916,24 @@ knitr::kable(cis_out,
                          "n categories"
                          )) %>%
     kable_styling(latex_options = "striped") %>%
-    add_footnote("The variables are listed as they appear in the open data. See the data dictionary for a description of each variable. Cohen's kappa is mostly irrelevant for variables with a large number of categories, and can be ignored. Not all variables were relevant for all articles we coded; thus, 'n total' differs among the variables. `justification' was coded as a radio question with 7 options. We re-coded this variable into 7 binary variables and calculate the inter-rater agreement for each one.", notation = "none", threeparttable = T)
+    add_footnote("The variables are listed as they appear in the open data. See the data dictionary for a description of each variable. Cohen's kappa is mostly irrelevant for variables with a large number of categories, and can be ignored. Not all variables were relevant for all articles we coded; thus, 'n total' differs among the variables. `justification' was coded as a multiple selection question with 7 options. We re-coded this variable into 7 binary variables and calculate the inter-rater agreement for each one.", notation = "none", threeparttable = T)
 ```
 
-n articles in PMC per 1 that uses GPower for any calculation: `r round(n_per_any_calc, 0)`  
-n articles in PMC per 1 that uses GPower for a sample size calculation: `r round(n_per_sample_size_calc, 0)`  
+
+Proportion of PMC articles that use GPower for any power calculation, with 95% CIs: `r cis_prop_any`  
+Proportion of PMC articles that use GPower for a sample size calculation, with 95% CIs: `r cis_prop_sample_size`   
+n articles in PMC per 1 that uses GPower for any calculation: `r round(n_per_any, 0)`  
+n articles in PMC per 1 that uses GPower for a sample size calculation: `r round(n_per_sample_size, 0)`  
+
+Participants that partook in studies with reproducible or likely reproducible sample size calculations: n = `r n_participants_repro`  
+Participants that partook in studies with non-reproducible sample size calculations: approximately n = `r n_participants_non_repro` (we assumed the sample size for 5 of these articles that did not report sample size)  
+Total number of participants: `r n_participants_repro + n_participants_non_repro`  
+Proportion of participants that partook in a study with a reproducible or likely reproducible sample size calculation: `r perc_participants_repro`  
+
+Cohen's *d* for height difference between men and women in the US (based on NHANES data Tables 9 and 11: https://www.cdc.gov/nchs/data/series/sr_03/sr03-046-508.pdf):  
+All people aged 20 and over: *d* = `r es_height[5] %>% round(2)`  
+All people aged 20-29: *d* = `r es_height_age[5] %>% round(2)`  
+Non-Hispanic, white aged 20-39: *d* = `r es_height_age_race[5] %>% round(2)`  
 
 ```{r table_csvs}
 write_csv(calc_type, paste0(getwd(), "/../results/table1.csv"))
@@ -828,4 +944,5 @@ write_csv(anova_results, paste0(getwd(), "/../results/table5.csv"))
 write_csv(cis_out, paste0(getwd(), "/../results/supplementary_table1.csv"))
 write_csv(kappa_all, paste0(getwd(), "/../results/supplementary_table2.csv"))
 ```
+
 
