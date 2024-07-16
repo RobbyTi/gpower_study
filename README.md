@@ -29,4 +29,4 @@ This folder contains:
 - This folder contains all tables from the manuscript in .csv files.
 
 # How to run the analysis code
-- The analysis code was written in RMarkdown. The dependencies necessary to run the code are provided in the Dockerfile. The easiest way to re-run the code is by clicking "Reproducible Run" in this manuscript's reproducible container on Code Ocean (LINK TO BE INSERTED). Alternatively, R can be downloaded from www.r-project.org/
+- The analysis code was written in RMarkdown. The dependencies necessary to run the code are provided in the Dockerfile. The easiest way to re-run the code is by clicking "Reproducible Run" in this manuscript's reproducible container on Code Ocean (https://doi.org/10.24433/CO.4349082.v1). Alternatively, R can be downloaded from www.r-project.org/

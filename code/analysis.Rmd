@@ -590,7 +590,8 @@ kappa_any_power_calc <- inter_rater(df_kappa, variables2, TRUE)
 
 # Identify ids for articles not solving for sample size
 id_sample_size_calc <- df %>% filter(grepl("/", coder)) %>% 
-  filter(power_calc_type == "Solves for sample size (often called a priori)") %>% 
+  filter(grepl("Solves for sample size \\(often called a priori\\)", power_calc_type)) %>% # Note, I have to use grepl() here, because there are two instances where the power_calc_type column contains more than one type of power calculation. And thus, a string match with "==" does not catch these two.
+  filter(!id %in% c(143, 146)) %>%
   select(id)
 
 # Remove articles that don't solve for sample size based on their id. This is necessary to calculate inter-rater agreement for the remaining variables. 
@@ -708,7 +709,7 @@ anova_results <- data.frame(
 
 ```
 
-```{r effect_size}
+```{r effect_size_height}
 
 cohensd <- function(m1, m2, sem1, sem2, n1, n2){ 
   # Calculate standard deviations from SEM
@@ -920,8 +921,8 @@ knitr::kable(cis_out,
 ```
 
 
-Proportion of PMC articles that use GPower for any power calculation, with 95% CIs: `r cis_prop_any`  
-Proportion of PMC articles that use GPower for a sample size calculation, with 95% CIs: `r cis_prop_sample_size`   
+Percentage of PMC articles that use GPower for any power calculation, with 95% CIs: `r cis_prop_any`  
+Percentage of PMC articles that use GPower for a sample size calculation, with 95% CIs: `r cis_prop_sample_size`   
 n articles in PMC per 1 that uses GPower for any calculation: `r round(n_per_any, 0)`  
 n articles in PMC per 1 that uses GPower for a sample size calculation: `r round(n_per_sample_size, 0)`  
 
